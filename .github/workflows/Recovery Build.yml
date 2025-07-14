@@ -158,8 +158,8 @@ jobs:
         rm -rf out
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        # 使用 -B 选项强制重新构建
-        lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng && make clean && make -B ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
+        # 移除 -B 选项，因为当前 make 版本可能不支持
+        lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng && make clean && make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Upload to Release
