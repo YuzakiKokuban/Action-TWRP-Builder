@@ -14,15 +14,15 @@ on:
       DEVICE_TREE_URL:
         description: 'DEVICE_TREE_URL'
         required: true
-        default: 'https://github.com/TeamWin/android_device_asus_I003D'
+        default: 'https://github.com/YuzakiKokuban/android_device_samsung_pa1q' # 更新为您的设备树URL
       DEVICE_TREE_BRANCH:
         description: 'DEVICE_TREE_BRANCH'
         required: true
-        default: 'android-12.1'
+        default: 'android-12.1' # 请根据您的设备树仓库中的实际分支名称进行修改，例如 'twrp-12.1' 或 'master'
       DEVICE_PATH:
         description: 'DEVICE_PATH'
         required: true
-        default: 'device/asus/I003D'
+        default: 'device/samsung/pa1q' # 更新为您的设备树路径
       COMMON_TREE_URL:
         description: 'COMMON_TREE_URL (if no common tree, leave blank)'
         required: false
@@ -32,11 +32,11 @@ on:
       DEVICE_NAME:
         description: 'DEVICE_NAME'
         required: true
-        default: 'I003D'
+        default: 'pa1q' # 建议根据您的设备型号更新此名称
       MAKEFILE_NAME:
         description: 'MAKEFILE_NAME'
         required: true
-        default: 'twrp_I003D'
+        default: 'twrp_pa1q' # 建议根据您的设备型号更新此名称
       BUILD_TARGET:
         description: 'BUILD_TARGET'
         required: true
@@ -62,14 +62,14 @@ jobs:
         echo "Build Target: ${{ github.event.inputs.BUILD_TARGET }}.img"
         echo "::endgroup::"
 
-    # You might want to Checkout your repo first, but not mandatory
+    # 您可能希望先检出您的仓库，但不是强制性的
     - name: Check Out
       uses: actions/checkout@v4
 
-    # Cleanup The Actions Workspace Using Custom Composite Run Actions
+    # 使用自定义复合运行操作清理 Actions 工作区
     - name: Cleanup
       uses: rokibhasansagar/slimhub_actions@main
-      # That's it! Now use your normal steps
+      # 就这样！现在使用您的正常步骤
 
     - name: Prepare the environment
       run: |
@@ -109,8 +109,8 @@ jobs:
         mkdir workspace
         cd workspace
         echo "workspace-folder=$(pwd)" >> $GITHUB_OUTPUT
-        git config --global user.name "YuzakiKokuban"
-        git config --global user.email "heibanbaize@gmail.com"
+        git config --global user.name "YuzakiKokuban" # 更新为您的GitHub用户名
+        git config --global user.email "YuzakiKokuban@users.noreply.github.com" # 更新为您的GitHub邮箱
         repo init --depth=1 -u ${{ github.event.inputs.MANIFEST_URL }} -b ${{ github.event.inputs.MANIFEST_BRANCH }}
       id: pwd
 
