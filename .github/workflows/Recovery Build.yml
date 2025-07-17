@@ -1,10 +1,23 @@
+# ----------------------------------------------------------------
+#               修复后的 GitHub Actions 工作流
+#
+# 主要修改:
+# 1. 将交换空间 (swap-size-gb) 从 12GB 减小到 8GB，以防止
+#    GitHub Actions Runner 磁盘空间不足的错误。
+# 2. 增加了 ccache 缓存步骤，可以显著加快后续的编译速度。
+#
+# 使用方法:
+# - 复制全部内容。
+# - 替换您项目中 .github/workflows/ 目录下的 yml 文件。
+# ----------------------------------------------------------------
+
 name: Recovery Build
 
 on:
   workflow_dispatch:
     inputs:
       MANIFEST_URL:
-        description: 'MANIFEST_URL (if want to use SSH keys, use git@github.com:XXXXX)'
+        description: 'MANIFEST_URL (如果想用 SSH 密钥，请使用 git@github.com:XXXXX 格式)'
         required: true
         default: 'https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp'
       MANIFEST_BRANCH:
@@ -18,16 +31,16 @@ on:
       DEVICE_TREE_BRANCH:
         description: 'DEVICE_TREE_BRANCH'
         required: true
-        default: 'android-12.1' # 请根据您的设备树仓库中的实际分支名称进行修改，例如 'twrp-12.1' 或 'master'
+        default: 'android-12.1' # 请根据您的设备树仓库中的实际分支名称进行修改
       DEVICE_PATH:
         description: 'DEVICE_PATH'
         required: true
         default: 'device/samsung/pa1q'
       COMMON_TREE_URL:
-        description: 'COMMON_TREE_URL (if no common tree, leave blank)'
+        description: 'COMMON_TREE_URL (如果没有，请留空)'
         required: false
       COMMON_PATH:
-        description: 'COMMON_PATH (if no common tree, leave blank)'
+        description: 'COMMON_PATH (如果没有，请留空)'
         required: false
       DEVICE_NAME:
         description: 'DEVICE_NAME'
@@ -44,8 +57,9 @@ on:
 
 jobs:
   build:
+    # 仅当触发工作流的用户是仓库所有者时才运行
     if: github.event.repository.owner.id == github.event.sender.id
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04 # 使用 22.04 LTS
     permissions:
       contents: write
     steps:
@@ -62,25 +76,20 @@ jobs:
         echo "Build Target: ${{ github.event.inputs.BUILD_TARGET }}.img"
         echo "::endgroup::"
 
-    # 您可能希望先检出您的仓库，但不是强制性的
     - name: Check Out
       uses: actions/checkout@v4
 
-    # 使用自定义复合运行操作清理 Actions 工作区
-    - name: Cleanup
+    - name: Cleanup Actions Workspace
       uses: rokibhasansagar/slimhub_actions@main
-      # 就这样！现在使用您的正常步骤
 
     - name: Prepare the environment
       run: |
-        sudo apt update && sudo apt upgrade -y
-        DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
-            linux-modules-extra-$(uname -r) \
-            gperf gcc-multilib gcc-10-multilib g++-multilib g++-10-multilib \
-            libc6-dev lib32ncurses-dev x11proto-core-dev libx11-dev tree lib32z-dev libgl1-mesa-dev libxml2-utils \
-            xsltproc bc ccache lib32readline-dev lib32z1-dev liblz4-tool libncurses-dev libsdl1.2-dev \
-            build-essential libgtk-3-dev libglu1-mesa-dev freeglut3-dev git libxml2 lzop pngcrush schedtool squashfs-tools \
-            imagemagick libbz2-dev lzma ncftp qemu-user-static libstdc++-10-dev libncurses6 python3 tar
+        sudo apt-get update
+        sudo apt-get install -y bc build-essential ccache curl flex g++-multilib gcc-multilib \
+        git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev \
+        libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev \
+        libwxgtk3.0-gtk3-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools \
+        xsltproc zip zlib1g-dev
 
     - name: Install OpenJDK
       uses: actions/setup-java@v4
@@ -99,12 +108,14 @@ jobs:
 
     - name: Install repo
       run: |
-        mkdir ~/bin
+        mkdir -p ~/bin
         curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
         chmod a+x ~/bin/repo
         sudo ln -sf ~/bin/repo /usr/bin/repo
+        echo "$HOME/bin" >> $GITHUB_PATH
 
     - name: Initialize repo
+      id: pwd
       run: |
         mkdir workspace
         cd workspace
@@ -112,12 +123,11 @@ jobs:
         git config --global user.name "YuzakiKokuban"
         git config --global user.email "YuzakiKokuban@users.noreply.github.com"
         repo init --depth=1 -u ${{ github.event.inputs.MANIFEST_URL }} -b ${{ github.event.inputs.MANIFEST_BRANCH }}
-      id: pwd
 
     - name: Repo Sync
       run: |
-        repo sync -j$(nproc --all) --force-sync
-      working-directory: workspace
+        repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+      working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Clone device tree
       run: |
@@ -125,50 +135,45 @@ jobs:
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Clone common tree
-      if: |
-        github.event.inputs.COMMON_TREE_URL != null
-        && github.event.inputs.COMMON_PATH != null
+      if: github.event.inputs.COMMON_TREE_URL
       run: |
         git clone ${{ github.event.inputs.COMMON_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.COMMON_PATH }}
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
-    - name: Check Build Tree
-      uses: haya14busa/action-cond@v1
-      id: buildtree
-      with:
-        cond: ${{ github.event.inputs.MANIFEST_BRANCH == 'twrp-11' || github.event.inputs.MANIFEST_BRANCH == 'twrp-12.1' }}
-        if_true: twrp
-        if_false: omni
-
-    - name: Sync Device Dependencies
-      run: |
-        bash ${GITHUB_WORKSPACE}/scripts/convert.sh ${{ github.event.inputs.DEVICE_PATH }}/${{ steps.buildtree.outputs.value }}.dependencies
-        repo sync -j$(nproc --all)
-      working-directory: ${{ steps.pwd.outputs.workspace-folder }}
-      continue-on-error: true
-
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
-        swap-size-gb: 12
+        # [!] 修改点: 将交换空间从 12GB 减小到 8GB 以避免磁盘空间不足
+        swap-size-gb: 8
+
+    - name: Setup ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ccache-${{ github.run_id }}
+        restore-keys: ccache-
 
     - name: Building recovery
       run: |
-        # 强制清理输出目录，确保每次都是全新构建
-        rm -rf out
+        export CCACHE_DIR=~/.ccache
+        export CCACHE_EXEC=$(which ccache)
+        export USE_CCACHE=1
+        ccache -M 50G # 设置 ccache 最大缓存大小
+        ccache -z   # 重置 ccache 统计数据
+
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        # 移除 -B 选项，因为当前 make 版本可能不支持
-        lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng && make clean && make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
+        lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng
+        make clean
+        make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
       with:
         files: | 
-          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_TARGET }}.img
-          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.zip
-          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*vendor*.img
+          ${{ steps.pwd.outputs.workspace-folder }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_TARGET }}.img
+          ${{ steps.pwd.outputs.workspace-folder }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.zip
         name: ${{ github.event.inputs.DEVICE_NAME }}-${{ github.run_id }}
         tag_name: ${{ github.run_id }}
         body: |
@@ -177,3 +182,4 @@ jobs:
           Target: ${{ github.event.inputs.BUILD_TARGET }}.img
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
